@@ -5,9 +5,19 @@ use std::{
     process::exit,
 };
 
+use crate::{
+    errors::{GenericError, LexingError, XodyError},
+    expr::Expr,
+    parser::{AstPrinter, Parser},
+    scanner::Scanner,
+};
+
+mod errors;
+mod expr;
+mod parser;
 mod scanner;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -33,9 +43,9 @@ enum TokenType {
     LessEqual,
 
     // Literals.
+    Number,
+    String,
     Identifier,
-    Str { value: String },
-    Num { value: f64 },
 
     // Keywords.
     And,
@@ -64,10 +74,20 @@ impl Display for TokenType {
     }
 }
 
+#[derive(Clone, PartialEq)]
+enum RuntimeType {
+    Number(f64),
+    String(String),
+    Bool(bool),
+    Nil,
+}
+
+#[derive(Clone)]
 struct Token {
     toktype: TokenType,
     lexeme: String,
     line: usize,
+    literal: Option<RuntimeType>,
 }
 
 impl Token {
@@ -76,6 +96,16 @@ impl Token {
             toktype,
             lexeme,
             line,
+            literal: None,
+        };
+    }
+
+    fn new_literal(toktype: TokenType, lexeme: String, line: usize, literal: RuntimeType) -> Token {
+        return Self {
+            toktype,
+            lexeme,
+            line,
+            literal: Some(literal),
         };
     }
 }
@@ -86,46 +116,28 @@ impl ToString for Token {
     }
 }
 
-struct XodyErr {
-    line: usize,
-    where_: String,
-    message: String,
-}
+struct Xodyr {}
 
-impl XodyErr {
-    fn new(line: usize, where_: &str, message: &str) -> Self {
-        Self {
-            line,
-            where_: where_.to_owned(),
-            message: message.to_owned(),
-        }
-    }
-
-    fn new_line_msg(line: usize, message: &str) -> Self {
-        Self::new(line, "", message)
-    }
-
-    fn throw(&self) {
-        eprintln!(
-            "[line {}] Error {}: {}",
-            self.line, self.where_, self.message
-        );
-    }
-}
-
-struct Parser {}
-
-impl Parser {
+impl Xodyr {
     fn new() -> Self {
         Self {}
     }
 
-    fn run(&self, src: &str) -> Result<(), XodyErr> {
-        for token in src.chars() {
-            println!("{}", token);
-        }
+    fn run(&self, src: &str) {
+        let mut scan = Scanner::new(src);
+        match scan.scan_tokens() {
+            Ok(tokens) => {
+                let mut parser = Parser::new(tokens);
 
-        Result::Ok(())
+                match parser.parse() {
+                    Ok(expr) => AstPrinter::print(expr),
+                    Err(err) => err.report(),
+                }
+            }
+            Err(error) => {
+                error.report();
+            }
+        }
     }
 }
 
@@ -134,7 +146,7 @@ fn die(err: &str) {
     exit(-1);
 }
 
-fn run_prompt(p: &mut Parser) {
+fn run_prompt() {
     println!("You're now in Prompt Mode, press Ctrl-c to exit");
     let stdin = std::io::stdin();
     let mut buf = String::new();
@@ -142,18 +154,19 @@ fn run_prompt(p: &mut Parser) {
         print!(">>> ");
         std::io::stdout().flush().unwrap();
         buf.clear();
+
         if let Err(err) = stdin.read_line(&mut buf) {
-            die(&err.to_string());
+            GenericError::new(&err.to_string()).throw();
         }
 
         let val = buf.replace("\r", "").replace("\n", "");
         if !val.is_empty() {
-            let _result = p.run(&val);
+            let _result = Xodyr::new().run(&val);
         }
     }
 }
 
-fn run_file(p: &Parser, path: &str) {
+fn run_file(path: &str) {
     match File::open(path) {
         Err(err) => die(&err.to_string()),
         Ok(mut file) => {
@@ -164,10 +177,7 @@ fn run_file(p: &Parser, path: &str) {
 
             let val = buf.replace("\r", "").replace("\n", "");
             if !val.is_empty() {
-                let result = p.run(&val);
-                if let Err(_err) = result {
-                    exit(65);
-                }
+                Xodyr::new().run(&val);
             }
         }
     };
@@ -176,13 +186,12 @@ fn run_file(p: &Parser, path: &str) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let mut parser = Parser::new();
     if args.len() > 2 {
         println!("Usage: {} [script]", args[0]);
         exit(64);
     } else if args.len() == 2 {
-        run_file(&parser, &args[1]);
+        run_file(&args[1]);
     } else {
-        run_prompt(&mut parser);
+        run_prompt();
     }
 }

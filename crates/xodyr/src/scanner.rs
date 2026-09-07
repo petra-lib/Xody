@@ -1,38 +1,36 @@
 use std::collections::HashMap;
 
 use crate::{
-    Token,
+    RuntimeType, Token,
     TokenType::{
         self, And, Bang, BangEqual, Class, Comma, Dot, Else, Equal, EqualEqual, False, For, Fun,
         Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
         Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash, Star, Super, This, True,
         Var, While,
     },
-    XodyErr,
+    errors::{GenericError, LexingError, XodyError},
 };
 
 /// A struct representing the scanner of our interpreter
 ///
 /// `Scanner` manages the Lexical Analysis of our input file or input commands
-struct Scanner {
+pub struct Scanner {
     source: Vec<char>,
     tokens: Vec<Token>,
     start: usize,
     current: usize,
     line: usize,
-    error: Option<XodyErr>,
     keywords: HashMap<&'static str, TokenType>,
 }
 
 impl Scanner {
-    fn new(src: &str) -> Self {
+    pub fn new(src: &str) -> Self {
         let mut s = Scanner {
             source: src.chars().collect(),
             tokens: Vec::new(),
             start: 0,
             current: 0,
             line: 1,
-            error: None,
             keywords: HashMap::new(),
         };
 
@@ -63,25 +61,21 @@ impl Scanner {
     }
 
     /// Scan all tokens in the file, saving them in the "tokens" array
-    fn scan_tokens(&mut self) {
+    pub fn scan_tokens(&mut self) -> Result<&Vec<Token>, LexingError> {
         while !self.is_at_end() {
             self.start = self.current;
-            self.scan_tokens();
-
-            if let Some(err) = &self.error {
-                err.throw();
-                self.error = None;
-            }
+            self.scan_token();
         }
-
         self.tokens
             .push(Token::new(TokenType::EOF, String::new(), self.line));
+
+        Ok(&self.tokens)
     }
 
     /// Parse the current token or generates a new error saved in self.error
     ///
     /// Even if an error is generated, this function will still consume the token
-    fn scan_token(&mut self) {
+    fn scan_token(&mut self) -> Result<(), LexingError> {
         match self.advance() {
             '(' => self.add_token(LeftParen),
             ')' => self.add_token(RightParen),
@@ -96,15 +90,15 @@ impl Scanner {
 
             '!' => {
                 let toktype = if self.next_is('=') { BangEqual } else { Bang };
-                self.add_token(toktype)
+                self.add_token(toktype);
             }
             '=' => {
                 let toktype = if self.next_is('=') { EqualEqual } else { Equal };
-                self.add_token(toktype)
+                self.add_token(toktype);
             }
             '<' => {
                 let toktype = if self.next_is('=') { LessEqual } else { Less };
-                self.add_token(toktype)
+                self.add_token(toktype);
             }
             '>' => {
                 let toktype = if self.next_is('=') {
@@ -112,7 +106,7 @@ impl Scanner {
                 } else {
                     Greater
                 };
-                self.add_token(toktype)
+                self.add_token(toktype);
             }
 
             '/' => {
@@ -123,7 +117,7 @@ impl Scanner {
                     }
                 } else {
                     // Else we treat it as a division
-                    self.add_token(Slash);
+                    self.add_token(Slash)
                 }
             }
 
@@ -132,18 +126,22 @@ impl Scanner {
 
             '\n' => self.line += 1,
 
-            '"' => self.string(),
+            '"' => self.string()?,
 
             c => {
                 if Self::is_digit(c) {
                     self.number();
+                    return Result::Ok(());
                 } else if Self::is_alpha(c) {
                     self.identifier();
+                    return Result::Ok(());
                 }
 
-                self.error = Some(XodyErr::new_line_msg(self.line, "Unexpected character."));
+                return Result::Err(LexingError::new(self.line, "", "Unexpected character."));
             }
         }
+
+        Result::Ok(())
     }
 
     fn is_digit(c: char) -> bool {
@@ -161,7 +159,7 @@ impl Scanner {
     /// Takes a substring of the source file from start to end included
     /// and returns an owned version of it
     fn substring(&mut self, start: usize, end: usize) -> String {
-        self.source[start..=end].iter().collect()
+        self.source[start..end].iter().collect()
     }
 
     /// Takes a token type and saves it in `self.tokens` with the
@@ -171,10 +169,17 @@ impl Scanner {
         self.tokens.push(Token::new(toktype, text, self.line));
     }
 
+    fn add_token_literal(&mut self, toktype: TokenType, literal: RuntimeType) {
+        let text: String = self.source[self.start..self.current].iter().collect();
+        self.tokens
+            .push(Token::new_literal(toktype, text, self.line, literal));
+    }
+
     /// Consumes a char and returns it
     fn advance(&mut self) -> char {
+        let result = self.source[self.current];
         self.current += 1;
-        return self.source[self.current];
+        return result;
     }
 
     /// Consumes a char and returns if the char was equal to `expected`
@@ -209,7 +214,7 @@ impl Scanner {
     /// Checks if the current token is a valid string (surrounded by ")
     ///
     /// If it's not valid, it generates an error stored in "self.error"
-    fn string(&mut self) {
+    fn string(&mut self) -> Result<(), LexingError> {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1
@@ -218,14 +223,15 @@ impl Scanner {
         }
 
         if self.is_at_end() {
-            self.error = Some(XodyErr::new_line_msg(self.line, "Unterminated string."));
+            return Result::Err(LexingError::new(self.line, "", "Unterminated string."));
         }
 
         // The closing "
         self.advance();
 
         let text = self.substring(self.start + 1, self.current - 1);
-        self.add_token(TokenType::Str { value: text });
+        self.add_token_literal(TokenType::String, RuntimeType::String(text));
+        Result::Ok(())
     }
 
     /// Checks if the current token is a valid number and parses it
@@ -249,9 +255,11 @@ impl Scanner {
         }
 
         let numstr = self.substring(self.start, self.current);
-        self.add_token(TokenType::Num {
-            value: numstr.parse::<f64>().unwrap(),
-        });
+
+        self.add_token_literal(
+            TokenType::Number,
+            RuntimeType::Number(numstr.parse::<f64>().unwrap()),
+        );
     }
 
     /// Checks if the current token is a valid identifier
