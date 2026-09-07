@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use crate::{
     RuntimeType, Token,
     TokenType::{
@@ -7,7 +5,7 @@ use crate::{
         LeftParen, Less, LessEqual, Minus, Nil, Plus, Print, Return, RightParen, Semicolon, Slash,
         Star, True, Var, While,
     },
-    errors::{ParseError, XodyError},
+    errors::ParseError,
     expr::Expr,
 };
 
@@ -25,7 +23,9 @@ macro_rules! parenthesize {
     }};
 }
 
+#[allow(unused)]
 pub struct AstPrinter;
+#[allow(unused)]
 impl AstPrinter {
     pub fn print(ex: Expr) {
         println!("{}", Self::stringify(ex));
@@ -55,6 +55,7 @@ pub struct Parser {
     current: usize,
 }
 
+#[allow(unused)]
 impl Parser {
     pub fn new(tokens: &Vec<Token>) -> Self {
         Self {
@@ -209,7 +210,7 @@ impl Parser {
 
         if self.matches(&[LeftParen]) {
             let expr = self.expression()?;
-            self.consume(&RightParen, "Expect ')' after expression.");
+            self.consume(&RightParen, "Expect ')' after expression.")?;
             return Ok(Expr::Grouping {
                 expression: Box::new(expr),
             });

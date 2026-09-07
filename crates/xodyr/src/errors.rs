@@ -83,17 +83,37 @@ impl XodyError for ParseError {
     fn report(&self) {
         match self.token.toktype {
             TokenType::EOF => {
-                eprintln!(
-                    "[line {}] Error at end: {}",
-                    self.token.line, self.token.lexeme
-                );
+                eprintln!("[line {}] Error at end: {}", self.token.line, self.message);
             }
             _ => {
                 eprintln!(
                     "[line {}] Error at {}: {}",
-                    self.token.line, self.token.lexeme, self.token.lexeme
+                    self.token.line, self.token.lexeme, self.message
                 );
             }
         }
+    }
+}
+
+pub struct RuntimeError {
+    message: String,
+}
+
+impl RuntimeError {
+    pub fn new(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+}
+
+impl XodyError for RuntimeError {
+    fn throw(&self) -> ! {
+        self.report();
+        exit(65);
+    }
+
+    fn report(&self) {
+        eprintln!("Error: {}", self.message);
     }
 }

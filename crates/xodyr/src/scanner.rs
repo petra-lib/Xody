@@ -8,7 +8,7 @@ use crate::{
         Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash, Star, Super, This, True,
         Var, While,
     },
-    errors::{GenericError, LexingError, XodyError},
+    errors::LexingError,
 };
 
 /// A struct representing the scanner of our interpreter
@@ -64,7 +64,7 @@ impl Scanner {
     pub fn scan_tokens(&mut self) -> Result<&Vec<Token>, LexingError> {
         while !self.is_at_end() {
             self.start = self.current;
-            self.scan_token();
+            self.scan_token()?;
         }
         self.tokens
             .push(Token::new(TokenType::EOF, String::new(), self.line));

@@ -6,14 +6,15 @@ use std::{
 };
 
 use crate::{
-    errors::{GenericError, LexingError, XodyError},
-    expr::Expr,
-    parser::{AstPrinter, Parser},
+    errors::{GenericError, XodyError},
+    interpreter::Interpreter,
+    parser::Parser,
     scanner::Scanner,
 };
 
 mod errors;
 mod expr;
+mod interpreter;
 mod parser;
 mod scanner;
 
@@ -74,7 +75,7 @@ impl Display for TokenType {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 enum RuntimeType {
     Number(f64),
     String(String),
@@ -126,14 +127,13 @@ impl Xodyr {
     fn run(&self, src: &str) {
         let mut scan = Scanner::new(src);
         match scan.scan_tokens() {
-            Ok(tokens) => {
-                let mut parser = Parser::new(tokens);
-
-                match parser.parse() {
-                    Ok(expr) => AstPrinter::print(expr),
+            Ok(tokens) => match Parser::new(tokens).parse() {
+                Ok(expr) => match Interpreter::new().interpret(expr) {
+                    Ok(value) => println!("value: {:?}", value),
                     Err(err) => err.report(),
-                }
-            }
+                },
+                Err(err) => err.report(),
+            },
             Err(error) => {
                 error.report();
             }
