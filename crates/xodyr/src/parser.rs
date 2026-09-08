@@ -304,6 +304,9 @@ impl<'a> Parser<'a> {
         if self.matches(&[TokenType::While]) {
             return Ok(self.while_statement()?);
         }
+        if self.matches(&[TokenType::For]) {
+            return Ok(self.for_statement()?);
+        }
 
         if self.matches(&[TokenType::LeftBrace]) {
             let statements = self.block()?;
@@ -311,6 +314,64 @@ impl<'a> Parser<'a> {
         }
 
         Result::Ok(self.expression_statement()?)
+    }
+
+    fn for_statement(&mut self) -> Result<StmtIdx, ParseError> {
+        self.consume(&LeftParen, "Expect '(' after 'if'.")?;
+        let initializer: Option<StmtIdx> = if self.matches(&[Semicolon]) {
+            None
+        } else if self.matches(&[Var]) {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let condition: ExprIdx = if !self.check(&Semicolon) {
+            self.expression()?
+        } else {
+            self.ast_arena.insert_expr(Expr::Literal {
+                value: RuntimeValue::Bool(true),
+            })
+        };
+
+        self.consume(&Semicolon, "Expect ';' after loop condition.")?;
+
+        let increment = if !self.check(&RightParen) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.consume(&RightParen, "Expect ')' after for clauses.")?;
+
+        let mut body = self.statement()?;
+
+        // If there's an increment just put it after the body creating a new block
+        // so that we have an auto-increment statement
+        if let Some(increment) = increment {
+            let increment_stmt = self
+                .ast_arena
+                .insert_stmt(Stmt::Expression { expr: increment });
+
+            body = self.ast_arena.insert_stmt(Stmt::Block {
+                statements: vec![body, increment_stmt],
+            })
+        }
+
+        // The condition is either defined or always true
+        // we build a while loop with that condition
+        body = self.ast_arena.insert_stmt(Stmt::While { condition, body });
+
+        // Finally if there's an initializer, it runs once before the entire loop.
+        // We do that by replacing the whole statement with a block that runs the initializer
+        // and then executes the loop.
+        if let Some(initializer) = initializer {
+            body = self.ast_arena.insert_stmt(Stmt::Block {
+                statements: vec![initializer, body],
+            })
+        }
+
+        Ok(body)
     }
 
     fn while_statement(&mut self) -> Result<StmtIdx, ParseError> {

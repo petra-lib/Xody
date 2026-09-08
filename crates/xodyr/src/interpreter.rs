@@ -215,12 +215,19 @@ impl<'a> Interpreter<'a> {
                     && let RuntimeValue::Number(right) = right
                 {
                     RuntimeValue::Number(left + right)
-                } else if let RuntimeValue::String(left) = left
-                    && let RuntimeValue::String(right) = right
-                {
-                    RuntimeValue::String(format!("{}{}", left, right))
+                } else if self.is_string(&left) || self.is_string(&right) {
+                    RuntimeValue::String(format!(
+                        "{}{}",
+                        self.as_string(left)?,
+                        self.as_string(right)?
+                    ))
                 } else {
-                    return Result::Err(RuntimeError::new("Trying to add incompatible types"));
+                    return Result::Err(RuntimeError::new(&format!(
+                        "Trying to add incompatible types: {} {} {}",
+                        self.as_string(left)?,
+                        operator.lexeme,
+                        self.as_string(right)?
+                    )));
                 }
             }
 
@@ -257,6 +264,22 @@ impl<'a> Interpreter<'a> {
             RuntimeValue::Nil => {
                 Result::Err(RuntimeError::new("Cannot convert Nil value to number"))
             }
+        }
+    }
+
+    fn as_string(&self, runtime_type: RuntimeValue) -> Result<String, RuntimeError> {
+        match runtime_type {
+            RuntimeValue::Number(num) => Ok(num.to_string()),
+            RuntimeValue::String(val) => Ok(val),
+            RuntimeValue::Bool(val) => Ok(val.to_string()),
+            RuntimeValue::Nil => Ok("nil".to_string()),
+        }
+    }
+
+    fn is_string(&self, runtime_type: &RuntimeValue) -> bool {
+        match runtime_type {
+            RuntimeValue::String(_) => true,
+            _ => false,
         }
     }
 
