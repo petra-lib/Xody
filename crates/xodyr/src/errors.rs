@@ -114,6 +114,6 @@ impl XodyError for RuntimeError {
     }
 
     fn report(&self) {
-        eprintln!("Error: {}", self.message);
+        eprintln!("Runtime Error: {}", self.message);
     }
 }

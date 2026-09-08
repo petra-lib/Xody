@@ -12,11 +12,13 @@ use crate::{
     scanner::Scanner,
 };
 
+mod environment;
 mod errors;
 mod expr;
 mod interpreter;
 mod parser;
 mod scanner;
+mod stmt;
 
 #[derive(Clone, PartialEq)]
 enum TokenType {
@@ -83,6 +85,17 @@ enum RuntimeType {
     Nil,
 }
 
+impl ToString for RuntimeType {
+    fn to_string(&self) -> String {
+        match self {
+            RuntimeType::Number(val) => val.to_string(),
+            RuntimeType::String(val) => val.clone(),
+            RuntimeType::Bool(val) => val.to_string(),
+            RuntimeType::Nil => "nil".to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct Token {
     toktype: TokenType,
@@ -126,18 +139,9 @@ impl Xodyr {
 
     fn run(&self, src: &str) {
         let mut scan = Scanner::new(src);
-        match scan.scan_tokens() {
-            Ok(tokens) => match Parser::new(tokens).parse() {
-                Ok(expr) => match Interpreter::new().interpret(expr) {
-                    Ok(value) => println!("value: {:?}", value),
-                    Err(err) => err.report(),
-                },
-                Err(err) => err.report(),
-            },
-            Err(error) => {
-                error.report();
-            }
-        }
+        let tokens = scan.scan_tokens();
+        let statements = Parser::new(tokens).parse();
+        Interpreter::new().interpret(statements);
     }
 }
 
@@ -159,9 +163,9 @@ fn run_prompt() {
             GenericError::new(&err.to_string()).throw();
         }
 
-        let val = buf.replace("\r", "").replace("\n", "");
-        if !val.is_empty() {
-            let _result = Xodyr::new().run(&val);
+        // let val = buf.replace("\r", "").replace("\n", "");
+        if !buf.is_empty() {
+            let _result = Xodyr::new().run(&buf);
         }
     }
 }
@@ -175,9 +179,9 @@ fn run_file(path: &str) {
                 die(&err.to_string());
             }
 
-            let val = buf.replace("\r", "").replace("\n", "");
-            if !val.is_empty() {
-                Xodyr::new().run(&val);
+            // let val = buf.replace("\r", "").replace("\n", "");
+            if !buf.is_empty() {
+                Xodyr::new().run(&buf);
             }
         }
     };

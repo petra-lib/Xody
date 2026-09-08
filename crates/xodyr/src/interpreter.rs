@@ -1,39 +1,107 @@
 use crate::{
     RuntimeType, Token, TokenType,
-    errors::RuntimeError,
+    environment::Environment,
+    errors::{RuntimeError, XodyError},
     expr::Expr::{self, Literal},
+    stmt::Stmt,
 };
 
-pub struct Interpreter {}
+pub struct Interpreter {
+    environment: Environment,
+}
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            environment: Environment::new(None),
+        }
     }
 
-    pub fn interpret(&self, expr: Expr) -> Result<RuntimeType, RuntimeError> {
-        self.evaluate(expr)
+    pub fn interpret(&mut self, statements: Vec<Stmt>) {
+        for statement in statements {
+            if let Err(err) = self.execute_stmt(statement) {
+                err.throw()
+            }
+        }
     }
 
-    pub fn evaluate(&self, expr: Expr) -> Result<RuntimeType, RuntimeError> {
+    fn execute_stmt(&mut self, stmt: Stmt) -> Result<RuntimeType, RuntimeError> {
+        match stmt {
+            Stmt::Expression { expr } => self.evaluate_expr(*expr),
+            Stmt::Print { expr } => self.print_expr(*expr),
+            Stmt::Var { name, initializer } => self.define_variable(name, *initializer),
+            Stmt::Block { statements } => self.execute_block(statements, self.environment.clone()),
+        }
+    }
+
+    fn define_variable(
+        &mut self,
+        name: Token,
+        initializer: Expr,
+    ) -> Result<RuntimeType, RuntimeError> {
+        let mut val = RuntimeType::Nil;
+
+        match initializer {
+            Expr::Literal { value } => {
+                if value != RuntimeType::Nil {
+                    val = value;
+                }
+            }
+            _ => {}
+        }
+
+        self.environment.define(&name.lexeme, val);
+        Result::Ok(RuntimeType::Nil)
+    }
+
+    fn execute_block(
+        &mut self,
+        statements: Vec<Stmt>,
+        temp_env: Environment,
+    ) -> Result<RuntimeType, RuntimeError> {
+        let previous = self.environment.clone();
+
+        self.environment = temp_env;
+        for statement in statements {
+            self.execute_stmt(statement)?;
+        }
+
+        self.environment = previous;
+        Ok(RuntimeType::Nil)
+    }
+
+    fn print_expr(&mut self, expr: Expr) -> Result<RuntimeType, RuntimeError> {
+        println!("{}", self.evaluate_expr(expr)?.to_string());
+        Result::Ok(RuntimeType::Nil)
+    }
+
+    fn evaluate_expr(&mut self, expr: Expr) -> Result<RuntimeType, RuntimeError> {
         match expr {
             Expr::Binary {
                 left,
                 operator,
                 right,
             } => self.visit_binary_expr(left, operator, right),
-            Expr::Grouping { expression } => self.evaluate(*expression),
+            Expr::Grouping { expression } => self.evaluate_expr(*expression),
             Expr::Unary { operator, right } => self.visit_unary_expr(operator, right),
             Literal { value } => Result::Ok(value),
+            Expr::Variable { name } => Result::Ok(self.environment.get(&name)),
+            Expr::Assign { name, value } => self.visit_assign_expr(name, *value),
         }
     }
 
+    fn visit_assign_expr(&mut self, name: Token, value: Expr) -> Result<RuntimeType, RuntimeError> {
+        let value = self.evaluate_expr(value)?;
+        self.environment.assign(&name, value.clone());
+        Result::Ok(value)
+    }
+
     fn visit_unary_expr(
-        &self,
+        &mut self,
         operator: Token,
         right: Box<Expr>,
     ) -> Result<RuntimeType, RuntimeError> {
-        let right = self.evaluate(*right)?;
+        let right = self.evaluate_expr(*right)?;
 
         let result = match operator.toktype {
             TokenType::Minus => RuntimeType::Number(-self.as_number(right)?),
@@ -45,13 +113,13 @@ impl Interpreter {
     }
 
     fn visit_binary_expr(
-        &self,
+        &mut self,
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
     ) -> Result<RuntimeType, RuntimeError> {
-        let left = self.evaluate(*left)?;
-        let right = self.evaluate(*right)?;
+        let left = self.evaluate_expr(*left)?;
+        let right = self.evaluate_expr(*right)?;
 
         let result = match operator.toktype {
             TokenType::Minus => RuntimeType::Number(self.as_number(left)? - self.as_number(right)?),

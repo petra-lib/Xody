@@ -1,0 +1,7 @@
+var a = 12;
+print a;
+{
+    var a = "ciao sono una str";
+    print a;
+}
+print a;
