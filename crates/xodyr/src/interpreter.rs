@@ -33,6 +33,7 @@ impl<'a> Interpreter<'a> {
         match self.ast_arena.get_stmt(stmt) {
             Stmt::Expression { expr } => self.evaluate_expr(*expr),
             Stmt::Print { expr } => self.print_expr(*expr),
+            Stmt::Println { expr } => self.println_expr(*expr),
             Stmt::Var { name, initializer } => self.define_variable(*name, *initializer),
             Stmt::Block { statements } => {
                 let new_env = Rc::new(RefCell::new(Environment::new(Some(
@@ -104,6 +105,11 @@ impl<'a> Interpreter<'a> {
     }
 
     fn print_expr(&mut self, expr: ExprIdx) -> Result<RuntimeValue, RuntimeError> {
+        print!("{}", self.evaluate_expr(expr)?.to_string());
+        Result::Ok(RuntimeValue::Nil)
+    }
+
+    fn println_expr(&mut self, expr: ExprIdx) -> Result<RuntimeValue, RuntimeError> {
         println!("{}", self.evaluate_expr(expr)?.to_string());
         Result::Ok(RuntimeValue::Nil)
     }

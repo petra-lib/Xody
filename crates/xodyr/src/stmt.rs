@@ -13,6 +13,9 @@ pub enum Stmt {
     Print {
         expr: ExprIdx,
     },
+    Println {
+        expr: ExprIdx,
+    },
     Var {
         name: TokenIdx,
         initializer: ExprIdx,

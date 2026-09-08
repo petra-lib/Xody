@@ -5,8 +5,8 @@ use crate::{
     TokenType::{
         self, And, Bang, BangEqual, Class, Comma, Dot, Else, Equal, EqualEqual, False, For, Fun,
         Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
-        Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash, Star, Super, This, True,
-        Var, While,
+        Or, Plus, Print, Println, Return, RightBrace, RightParen, Semicolon, Slash, Star, Super,
+        This, True, Var, While,
     },
     ast_arena::AstArena,
     errors::LexingError,
@@ -46,6 +46,7 @@ impl<'a> Scanner<'a> {
         s.keywords.insert("nil", Nil);
         s.keywords.insert("or", Or);
         s.keywords.insert("print", Print);
+        s.keywords.insert("println", Println);
         s.keywords.insert("return", Return);
         s.keywords.insert("super", Super);
         s.keywords.insert("this", This);
@@ -179,6 +180,10 @@ impl<'a> Scanner<'a> {
 
     /// Consumes a char and returns it
     fn advance(&mut self) -> char {
+        if self.current > self.source.len() {
+            return '\0';
+        }
+
         let result = self.source[self.current];
         self.current += 1;
         return result;
@@ -217,11 +222,40 @@ impl<'a> Scanner<'a> {
     ///
     /// If it's not valid, it generates an error stored in "self.error"
     fn string(&mut self) -> Result<(), LexingError> {
+        let mut value = String::new();
+
         while self.peek() != '"' && !self.is_at_end() {
-            if self.peek() == '\n' {
-                self.line += 1
+            let c = self.peek();
+            if c == '\n' {
+                self.line += 1;
+                value.push(c);
+                self.advance();
+            } else if c == '\\' {
+                // if the next char is a backslash "\" we consume it
+                self.advance(); // Skip the backslash
+                // then we return the corresponding escaped character coming after
+                let escaped = match self.advance() {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '\\' => '\\',
+                    '"' => '\"',
+                    '\'' => '\'',
+                    '0' => '\0',
+                    '\0' => '\0',
+                    other => {
+                        return Err(LexingError::new(
+                            self.line,
+                            "",
+                            &format!("Unknown escape sequence '\\{}'.", other),
+                        ));
+                    }
+                };
+                value.push(escaped);
+            } else {
+                value.push(c);
+                self.advance();
             }
-            self.advance();
         }
 
         if self.is_at_end() {
@@ -231,8 +265,8 @@ impl<'a> Scanner<'a> {
         // The closing "
         self.advance();
 
-        let text = self.substring(self.start + 1, self.current - 1);
-        self.add_token_literal(TokenType::String, RuntimeValue::String(text));
+        // let text = self.substring(self.start + 1, self.current - 1);
+        self.add_token_literal(TokenType::String, RuntimeValue::String(value));
         Result::Ok(())
     }
 

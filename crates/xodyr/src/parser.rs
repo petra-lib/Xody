@@ -301,6 +301,10 @@ impl<'a> Parser<'a> {
             return Ok(self.print_statement()?);
         }
 
+        if self.matches(&[TokenType::Println]) {
+            return Ok(self.println_statement()?);
+        }
+
         if self.matches(&[TokenType::While]) {
             return Ok(self.while_statement()?);
         }
@@ -418,6 +422,13 @@ impl<'a> Parser<'a> {
         self.consume(&Semicolon, "Expect ';' after value.")?;
 
         Ok(self.ast_arena.insert_stmt(Stmt::Print { expr }))
+    }
+
+    fn println_statement(&mut self) -> Result<StmtIdx, ParseError> {
+        let expr = self.expression()?;
+        self.consume(&Semicolon, "Expect ';' after value.")?;
+
+        Ok(self.ast_arena.insert_stmt(Stmt::Println { expr }))
     }
 
     fn expression_statement(&mut self) -> Result<StmtIdx, ParseError> {
