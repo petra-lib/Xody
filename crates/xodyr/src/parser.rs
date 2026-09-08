@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::{
     RuntimeValue, Token,
     TokenType::{
@@ -7,31 +5,33 @@ use crate::{
         GreaterEqual, Identifier, If, LeftParen, Less, LessEqual, Minus, Nil, Or, Plus, Print,
         Return, RightParen, Semicolon, Slash, Star, True, Var, While,
     },
-    errors::{ParseError, XodyError},
+    ast_arena::{AstArena, ExprIdx, StmtIdx, TokenIdx},
+    errors::ParseError,
     expr::Expr,
     stmt::Stmt,
 };
 
-#[allow(unused)]
-pub struct AstPrinter;
-#[allow(unused)]
-impl AstPrinter {
-    pub fn print(ex: Expr) {
-        println!("{}", ex.to_string());
-    }
+pub struct Parser<'a> {
+    current_token: usize,
+    ast_arena: &'a mut AstArena,
 }
 
-pub struct Parser {
-    tokens: Vec<Rc<Token>>,
-    current: usize,
-}
-
-impl Parser {
-    pub fn new(tokens: &Vec<Rc<Token>>) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(ast_arena: &'a mut AstArena) -> Self {
         Self {
-            tokens: tokens.clone(),
-            current: 0,
+            current_token: 0,
+            ast_arena,
         }
+    }
+
+    pub fn parse(&mut self) -> Result<Vec<StmtIdx>, ParseError> {
+        self.ast_arena.clear_stmt();
+        self.ast_arena.clear_expr();
+        let mut statements: Vec<StmtIdx> = Vec::new();
+        while !self.is_at_end() {
+            statements.push(self.declaration()?);
+        }
+        Ok(statements)
     }
 
     /// Checks if the current token is of toktype
@@ -43,9 +43,9 @@ impl Parser {
         return self.peek().toktype == *toktype;
     }
 
-    fn advance(&mut self) -> Rc<Token> {
+    fn advance(&mut self) -> TokenIdx {
         if !self.is_at_end() {
-            self.current += 1;
+            self.current_token += 1;
         }
         return self.previous();
     }
@@ -56,13 +56,13 @@ impl Parser {
     }
 
     /// Peek the current token without consuming it
-    fn peek(&self) -> Rc<Token> {
-        self.tokens[self.current].clone()
+    fn peek(&self) -> &Token {
+        self.ast_arena.get_token(TokenIdx(self.current_token))
     }
 
     /// Peek the previous token without consuming it
-    fn previous(&self) -> Rc<Token> {
-        self.tokens[self.current - 1].clone()
+    fn previous(&self) -> TokenIdx {
+        TokenIdx(self.current_token - 1)
     }
 
     /// Returns true if the current token is one of toktypes.
@@ -77,143 +77,182 @@ impl Parser {
         false
     }
 
-    fn expression(&mut self) -> Result<Rc<Expr>, ParseError> {
+    fn expression(&mut self) -> Result<ExprIdx, ParseError> {
         self.assigment()
     }
 
-    fn assigment(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let expr = self.or()?;
+    fn assigment(&mut self) -> Result<ExprIdx, ParseError> {
+        let expr_id = self.or()?;
 
         if self.matches(&[Equal]) {
-            let equals = self.previous().clone();
+            let equals = self.previous();
             let value = self.assigment()?;
 
-            if let Expr::Variable { name } = (*expr).clone() {
-                return Ok(Expr::new_assign(name, value));
+            if let Expr::Variable { name } = self.ast_arena.get_expr(expr_id) {
+                return Ok(self.ast_arena.insert_expr(Expr::Assign {
+                    name: name.clone(),
+                    value,
+                }));
             }
 
             return Err(ParseError::new(
-                equals.clone(),
+                self.ast_arena.get_token(equals).clone(),
                 "Invalid assignment target.",
             ));
         }
 
-        Ok(expr)
+        Ok(expr_id)
     }
 
-    fn or(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let mut expr = self.and()?;
+    fn or(&mut self) -> Result<ExprIdx, ParseError> {
+        let mut expr_id = self.and()?;
         while self.matches(&[Or]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.and()?;
-            expr = Expr::new_logical(expr, operator, right);
+            expr_id = self.ast_arena.insert_expr(Expr::Logical {
+                left: expr_id,
+                operator,
+                right,
+            })
         }
 
-        return Ok(expr);
+        return Ok(expr_id);
     }
 
-    fn and(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let mut expr = self.equality()?;
+    fn and(&mut self) -> Result<ExprIdx, ParseError> {
+        let mut expr_id = self.equality()?;
 
         while self.matches(&[And]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.equality()?;
-            expr = Expr::new_logical(expr, operator, right)
+            expr_id = self.ast_arena.insert_expr(Expr::Logical {
+                left: expr_id,
+                operator,
+                right,
+            });
         }
 
-        Ok(expr)
+        Ok(expr_id)
     }
 
-    fn equality(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let mut expr = self.comparison()?;
+    fn equality(&mut self) -> Result<ExprIdx, ParseError> {
+        let mut expr_id = self.comparison()?;
         while self.matches(&[BangEqual, EqualEqual]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.comparison()?;
-            expr = Expr::new_binary(expr, operator, right);
+            expr_id = self.ast_arena.insert_expr(Expr::Binary {
+                left: expr_id,
+                operator,
+                right,
+            });
         }
 
-        Result::Ok(expr)
+        Result::Ok(expr_id)
     }
 
-    fn comparison(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let mut expr = self.term()?;
+    fn comparison(&mut self) -> Result<ExprIdx, ParseError> {
+        let mut expr_id = self.term()?;
         while self.matches(&[Greater, GreaterEqual, Less, LessEqual]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.term()?;
-            expr = Expr::new_binary(expr, operator, right);
+            expr_id = self.ast_arena.insert_expr(Expr::Binary {
+                left: expr_id,
+                operator,
+                right,
+            });
         }
 
-        Result::Ok(expr)
+        Result::Ok(expr_id)
     }
 
-    fn term(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let mut expr = self.factor()?;
+    fn term(&mut self) -> Result<ExprIdx, ParseError> {
+        let mut expr_id = self.factor()?;
         while self.matches(&[Minus, Plus]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.factor()?;
-            expr = Expr::new_binary(expr, operator, right);
+            expr_id = self.ast_arena.insert_expr(Expr::Binary {
+                left: expr_id,
+                operator,
+                right,
+            });
         }
 
-        Result::Ok(expr)
+        Result::Ok(expr_id)
     }
 
-    fn factor(&mut self) -> Result<Rc<Expr>, ParseError> {
-        let mut expr = self.unary()?;
+    fn factor(&mut self) -> Result<ExprIdx, ParseError> {
+        let mut expr_id = self.unary()?;
         while self.matches(&[Slash, Star]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.unary()?;
-            expr = Expr::new_binary(expr, operator, right);
+            expr_id = self.ast_arena.insert_expr(Expr::Binary {
+                left: expr_id,
+                operator,
+                right,
+            });
         }
 
-        Result::Ok(expr)
+        Result::Ok(expr_id)
     }
 
-    fn unary(&mut self) -> Result<Rc<Expr>, ParseError> {
+    fn unary(&mut self) -> Result<ExprIdx, ParseError> {
         if self.matches(&[Bang, Minus]) {
-            let operator = self.previous().clone();
+            let operator = self.previous();
             let right = self.unary()?;
-            return Ok(Expr::new_unary(operator, right));
+            return Ok(self.ast_arena.insert_expr(Expr::Unary { operator, right }));
         }
 
         self.primary()
     }
 
-    fn primary(&mut self) -> Result<Rc<Expr>, ParseError> {
+    fn primary(&mut self) -> Result<ExprIdx, ParseError> {
         if self.matches(&[False]) {
-            return Ok(Expr::new_literal(RuntimeValue::new_bool(false)));
+            return Ok(self.ast_arena.insert_expr(Expr::Literal {
+                value: RuntimeValue::Bool(false),
+            }));
         }
         if self.matches(&[True]) {
-            return Ok(Expr::new_literal(RuntimeValue::new_bool(true)));
+            return Ok(self.ast_arena.insert_expr(Expr::Literal {
+                value: RuntimeValue::Bool(true),
+            }));
         }
         if self.matches(&[Nil]) {
-            return Ok(Expr::new_literal(RuntimeValue::new_nil()));
+            return Ok(self.ast_arena.insert_expr(Expr::Literal {
+                value: RuntimeValue::Nil,
+            }));
         }
 
         if self.matches(&[TokenType::Number, TokenType::String]) {
-            return Ok(Expr::new_literal(Rc::new(
-                self.previous()
-                    .literal
-                    .clone()
-                    .expect("literal was not found"),
-            )));
+            let prev = self
+                .ast_arena
+                .get_token(self.previous())
+                .literal
+                .clone()
+                .expect("Literal was not found.");
+
+            return Ok(self.ast_arena.insert_expr(Expr::Literal { value: prev }));
         }
 
         if self.matches(&[Identifier]) {
-            return Ok(Expr::new_variable(self.previous()));
+            return Ok(self.ast_arena.insert_expr(Expr::Variable {
+                name: self.previous(),
+            }));
         }
 
         if self.matches(&[LeftParen]) {
             let expr = self.expression()?;
             self.consume(&RightParen, "Expect ')' after expression.")?;
-            return Ok(Expr::new_grouping(expr));
+            return Ok(self
+                .ast_arena
+                .insert_expr(Expr::Grouping { expression: expr }));
         }
 
-        Err(ParseError::new(self.peek(), "Expect expression."))
+        Err(ParseError::new(self.peek().clone(), "Expect expression."))
     }
 
     /// Consumes the current token only if it's of type `toktype` returning it,
     /// else returns an error with the `message` string
-    fn consume(&mut self, toktype: &TokenType, message: &str) -> Result<Rc<Token>, ParseError> {
+    fn consume(&mut self, toktype: &TokenType, message: &str) -> Result<TokenIdx, ParseError> {
         if self.check(toktype) {
             return Ok(self.advance());
         }
@@ -225,7 +264,9 @@ impl Parser {
         self.advance();
 
         while !self.is_at_end() {
-            if self.previous().toktype == Semicolon {
+            let prev = self.ast_arena.get_token(self.previous());
+
+            if prev.toktype == Semicolon {
                 return;
             }
 
@@ -240,18 +281,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Vec<Rc<Stmt>> {
-        let mut statements: Vec<Rc<Stmt>> = Vec::new();
-        while !self.is_at_end() {
-            match self.declaration() {
-                Ok(val) => statements.push(val),
-                Err(err) => err.throw(),
-            }
-        }
-        statements
-    }
-
-    fn declaration(&mut self) -> Result<Rc<Stmt>, ParseError> {
+    fn declaration(&mut self) -> Result<StmtIdx, ParseError> {
         if self.matches(&[TokenType::Var]) {
             match self.var_declaration() {
                 Ok(val) => return Result::Ok(val),
@@ -262,7 +292,7 @@ impl Parser {
         self.statement()
     }
 
-    fn statement(&mut self) -> Result<Rc<Stmt>, ParseError> {
+    fn statement(&mut self) -> Result<StmtIdx, ParseError> {
         if self.matches(&[TokenType::If]) {
             return Ok(self.if_statement()?);
         }
@@ -276,23 +306,22 @@ impl Parser {
         }
 
         if self.matches(&[TokenType::LeftBrace]) {
-            return Ok(Rc::new(Stmt::Block {
-                statements: self.block()?,
-            }));
+            let statements = self.block()?;
+            return Ok(self.ast_arena.insert_stmt(Stmt::Block { statements }));
         }
 
         Result::Ok(self.expression_statement()?)
     }
 
-    fn while_statement(&mut self) -> Result<Rc<Stmt>, ParseError> {
+    fn while_statement(&mut self) -> Result<StmtIdx, ParseError> {
         self.consume(&LeftParen, "Expect '(' after 'if'.")?;
         let condition = self.expression()?;
         self.consume(&RightParen, "Expect ')' after if condition.")?;
         let body = self.statement()?;
-        Ok(Rc::new(Stmt::While { condition, body }))
+        Ok(self.ast_arena.insert_stmt(Stmt::While { condition, body }))
     }
 
-    fn if_statement(&mut self) -> Result<Rc<Stmt>, ParseError> {
+    fn if_statement(&mut self) -> Result<StmtIdx, ParseError> {
         self.consume(&LeftParen, "Expect '(' after 'if'.")?;
         let condition = self.expression()?;
         self.consume(&RightParen, "Expect ')' after if condition.")?;
@@ -305,15 +334,15 @@ impl Parser {
             None
         };
 
-        Ok(Rc::new(Stmt::If {
+        Ok(self.ast_arena.insert_stmt(Stmt::If {
             condition,
             then_branch,
             else_branch,
         }))
     }
 
-    fn block(&mut self) -> Result<Vec<Rc<Stmt>>, ParseError> {
-        let mut statements: Vec<Rc<Stmt>> = Vec::new();
+    fn block(&mut self) -> Result<Vec<StmtIdx>, ParseError> {
+        let mut statements: Vec<StmtIdx> = Vec::new();
 
         while !self.check(&TokenType::RightBrace) && !self.is_at_end() {
             statements.push(self.declaration()?);
@@ -323,26 +352,26 @@ impl Parser {
         Ok(statements)
     }
 
-    fn print_statement(&mut self) -> Result<Rc<Stmt>, ParseError> {
+    fn print_statement(&mut self) -> Result<StmtIdx, ParseError> {
         let expr = self.expression()?;
         self.consume(&Semicolon, "Expect ';' after value.")?;
 
-        Ok(Rc::new(Stmt::Print { expr }))
+        Ok(self.ast_arena.insert_stmt(Stmt::Print { expr }))
     }
 
-    fn expression_statement(&mut self) -> Result<Rc<Stmt>, ParseError> {
+    fn expression_statement(&mut self) -> Result<StmtIdx, ParseError> {
         let expr = self.expression()?;
         self.consume(&Semicolon, "Expect ';' after value.")?;
 
-        Ok(Rc::new(Stmt::Expression { expr }))
+        Ok(self.ast_arena.insert_stmt(Stmt::Expression { expr }))
     }
 
-    fn var_declaration(&mut self) -> Result<Rc<Stmt>, ParseError> {
-        let name = self
-            .consume(&TokenType::Identifier, "Expect variable name.")?
-            .clone();
+    fn var_declaration(&mut self) -> Result<StmtIdx, ParseError> {
+        let name = self.consume(&TokenType::Identifier, "Expect variable name.")?;
 
-        let mut initializer = Expr::new_literal(RuntimeValue::new_nil());
+        let mut initializer = self.ast_arena.insert_expr(Expr::Literal {
+            value: RuntimeValue::Nil,
+        });
 
         if self.matches(&[TokenType::Equal]) {
             initializer = self.expression()?;
@@ -353,6 +382,6 @@ impl Parser {
             "Expect ';' after variable declaration.",
         )?;
 
-        Ok(Rc::new(Stmt::Var { name, initializer }))
+        Ok(self.ast_arena.insert_stmt(Stmt::Var { name, initializer }))
     }
 }

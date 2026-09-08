@@ -1,18 +1,15 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{
-    RuntimeValue, Token,
-    errors::{RuntimeError, XodyError},
-};
+use crate::{RuntimeValue, Token, errors::RuntimeError};
 
 #[derive(Clone)]
 pub struct Environment {
-    enclosing: Option<Box<Environment>>,
+    enclosing: Option<Rc<RefCell<Environment>>>,
     values: HashMap<String, RuntimeValue>,
 }
 
 impl Environment {
-    pub fn new(enclosing: Option<Box<Environment>>) -> Self {
+    pub fn new(enclosing: Option<Rc<RefCell<Environment>>>) -> Self {
         Self {
             enclosing,
             values: HashMap::new(),
@@ -23,28 +20,34 @@ impl Environment {
         self.values.insert(name.to_string(), value);
     }
 
-    pub fn get(&self, name: &Token) -> RuntimeValue {
+    pub fn get(&self, name: &Token) -> Result<RuntimeValue, RuntimeError> {
         if let Some(value) = self.values.get(&name.lexeme) {
-            return value.clone();
+            return Ok(value.clone());
         }
 
         if let Some(enclosing) = &self.enclosing {
-            return enclosing.get(name);
+            return enclosing.borrow().get(name);
         }
 
-        RuntimeError::new(&format!("Undefined variable '{}'.", name.lexeme)).throw();
+        Err(RuntimeError::new(&format!(
+            "Undefined variable '{}'.",
+            name.lexeme
+        )))
     }
 
-    pub fn assign(&mut self, name: &Token, value: RuntimeValue) {
+    pub fn assign(&mut self, name: &Token, value: RuntimeValue) -> Result<(), RuntimeError> {
         if self.values.contains_key(&name.lexeme) {
             self.values.insert(name.lexeme.clone(), value);
-            return;
+            return Ok(());
         }
 
         if let Some(enclosing) = &mut self.enclosing {
-            return enclosing.assign(name, value);
+            return enclosing.borrow_mut().assign(name, value);
         }
 
-        RuntimeError::new(&format!("Undefined variable '{}'.", name.lexeme)).throw();
+        Err(RuntimeError::new(&format!(
+            "Undefined variable '{}'.",
+            name.lexeme
+        )))
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use crate::{
     RuntimeValue, Token,
@@ -8,30 +8,31 @@ use crate::{
         Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash, Star, Super, This, True,
         Var, While,
     },
-    errors::{LexingError, XodyError},
+    ast_arena::AstArena,
+    errors::LexingError,
 };
 
 /// A struct representing the scanner of our interpreter
 ///
 /// `Scanner` manages the Lexical Analysis of our input file or input commands
-pub struct Scanner {
+pub struct Scanner<'a> {
     source: Vec<char>,
-    tokens: Vec<Rc<Token>>,
     start: usize,
     current: usize,
     line: usize,
     keywords: HashMap<&'static str, TokenType>,
+    ast_arena: &'a mut AstArena,
 }
 
-impl Scanner {
-    pub fn new(src: &str) -> Self {
+impl<'a> Scanner<'a> {
+    pub fn new(src: &str, ast_arena: &'a mut AstArena) -> Self {
         let mut s = Scanner {
             source: src.chars().collect(),
-            tokens: Vec::new(),
             start: 0,
             current: 0,
             line: 1,
             keywords: HashMap::new(),
+            ast_arena,
         };
 
         // Reserved keywords
@@ -61,20 +62,15 @@ impl Scanner {
     }
 
     /// Scan all tokens in the file, saving them in the "tokens" array
-    pub fn scan_tokens(&mut self) -> &Vec<Rc<Token>> {
+    pub fn scan_tokens(&mut self) -> Result<(), LexingError> {
+        self.ast_arena.clear_tokens();
         while !self.is_at_end() {
             self.start = self.current;
-            if let Err(err) = self.scan_token() {
-                err.throw();
-            }
+            self.scan_token()?;
         }
-        self.tokens.push(Rc::new(Token::new(
-            TokenType::EOF,
-            String::new(),
-            self.line,
-        )));
-
-        &self.tokens
+        self.ast_arena
+            .insert_token(Token::new(TokenType::EOF, String::new(), self.line));
+        Ok(())
     }
 
     /// Parse the current token or generates a new error saved in self.error
@@ -171,15 +167,14 @@ impl Scanner {
     /// corresponding text representation
     fn add_token(&mut self, toktype: TokenType) {
         let text: String = self.source[self.start..self.current].iter().collect();
-        self.tokens
-            .push(Rc::new(Token::new(toktype, text, self.line)));
+        self.ast_arena
+            .insert_token(Token::new(toktype, text, self.line));
     }
 
     fn add_token_literal(&mut self, toktype: TokenType, literal: RuntimeValue) {
         let text: String = self.source[self.start..self.current].iter().collect();
-        self.tokens.push(Rc::new(Token::new_literal(
-            toktype, text, self.line, literal,
-        )));
+        self.ast_arena
+            .insert_token(Token::new_literal(toktype, text, self.line, literal));
     }
 
     /// Consumes a char and returns it

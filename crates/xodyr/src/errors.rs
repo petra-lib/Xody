@@ -1,4 +1,4 @@
-use std::{process::exit, rc::Rc};
+use std::process::exit;
 
 use crate::{Token, TokenType};
 
@@ -61,12 +61,12 @@ impl XodyError for LexingError {
 }
 
 pub struct ParseError {
-    token: Rc<Token>,
+    token: Token,
     message: String,
 }
 
 impl ParseError {
-    pub fn new(token: Rc<Token>, message: &str) -> Self {
+    pub fn new(token: Token, message: &str) -> Self {
         Self {
             token,
             message: message.to_string(),
@@ -110,10 +110,26 @@ impl RuntimeError {
 impl XodyError for RuntimeError {
     fn throw(&self) -> ! {
         self.report();
-        exit(65);
+        exit(70);
     }
 
     fn report(&self) {
         eprintln!("Runtime Error: {}", self.message);
+    }
+}
+
+impl From<ParseError> for Box<dyn XodyError> {
+    fn from(value: ParseError) -> Self {
+        Box::new(value)
+    }
+}
+impl From<LexingError> for Box<dyn XodyError> {
+    fn from(value: LexingError) -> Self {
+        Box::new(value)
+    }
+}
+impl From<RuntimeError> for Box<dyn XodyError> {
+    fn from(value: RuntimeError) -> Self {
+        Box::new(value)
     }
 }

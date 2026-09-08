@@ -1,30 +1,39 @@
 
-var a = 8;
-var b = 11;
-var aIsMoreThanTen = a > 10;
-var bIsMoreThanTen = b > 10;
 
-if(aIsMoreThanTen) print "a is more than ten";
-if(bIsMoreThanTen) print "b is more than ten";
-
-if(aIsMoreThanTen and bIsMoreThanTen)
-    print "both are more than ten";
-else if(aIsMoreThanTen or bIsMoreThanTen)
-    print "only one is more than ten";
-else if (!aIsMoreThanTen and !bIsMoreThanTen)
-    print "neither is more than ten";
-
-
-var nome = "Paolo";
-var nickname = nil;
-
-print nickname or nome;
-
-
-var i = 0;
-
-while (i < 10){
-    print i;
-    i = i + 1;
+var a = 12;
+{
+    print a;
+    a = a + 1;
 }
-print i;
+
+print a;
+
+// var a = 8;
+// var b = 11;
+// var aIsMoreThanTen = a > 10;
+// var bIsMoreThanTen = b > 10;
+//
+// if(aIsMoreThanTen) print "a is more than ten";
+// if(bIsMoreThanTen) print "b is more than ten";
+//
+// if(aIsMoreThanTen and bIsMoreThanTen)
+//     print "both are more than ten";
+// else if(aIsMoreThanTen or bIsMoreThanTen)
+//     print "only one is more than ten";
+// else if (!aIsMoreThanTen and !bIsMoreThanTen)
+//     print "neither is more than ten";
+//
+//
+// var nome = "Paolo";
+// var nickname = nil;
+//
+// print nickname or nome;
+//
+//
+// var i = 0;
+//
+// while (i < 10){
+//     print i;
+//     i = i + 1;
+// }
+// print i;

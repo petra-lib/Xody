@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     fmt::Display,
     fs::File,
     io::{Read, Write},
@@ -7,12 +8,15 @@ use std::{
 };
 
 use crate::{
+    ast_arena::AstArena,
+    environment::Environment,
     errors::{GenericError, XodyError},
     interpreter::Interpreter,
     parser::Parser,
     scanner::Scanner,
 };
 
+mod ast_arena;
 mod environment;
 mod errors;
 mod expr;
@@ -86,24 +90,6 @@ enum RuntimeValue {
     Nil,
 }
 
-impl RuntimeValue {
-    pub fn new_number(val: f64) -> Rc<RuntimeValue> {
-        Rc::new(RuntimeValue::Number(val))
-    }
-
-    pub fn new_string(val: String) -> Rc<RuntimeValue> {
-        Rc::new(RuntimeValue::String(val))
-    }
-
-    pub fn new_bool(val: bool) -> Rc<RuntimeValue> {
-        Rc::new(RuntimeValue::Bool(val))
-    }
-
-    pub fn new_nil() -> Rc<RuntimeValue> {
-        Rc::new(RuntimeValue::Nil)
-    }
-}
-
 impl ToString for RuntimeValue {
     fn to_string(&self) -> String {
         match self {
@@ -116,7 +102,7 @@ impl ToString for RuntimeValue {
 }
 
 #[derive(Clone, Debug)]
-struct Token {
+pub struct Token {
     toktype: TokenType,
     lexeme: String,
     line: usize,
@@ -161,23 +147,27 @@ impl Xodyr {
         Self {}
     }
 
-    fn run(&self, src: &str) {
-        let mut scan = Scanner::new(src);
-        let tokens = scan.scan_tokens();
-        let statements = Parser::new(tokens).parse();
-        Interpreter::new().interpret(statements);
+    fn run(
+        &mut self,
+        src: &str,
+        ast_arena: &mut AstArena,
+        env: Rc<RefCell<Environment>>,
+    ) -> Result<(), Box<dyn XodyError>> {
+        Scanner::new(src, ast_arena).scan_tokens()?;
+        let statements = Parser::new(ast_arena).parse()?;
+        Interpreter::new(ast_arena, env).interpret(statements)?;
+        Ok(())
     }
-}
-
-fn die(err: &str) {
-    eprintln!("[ERROR]: {}", err);
-    exit(-1);
 }
 
 fn run_prompt() {
     println!("You're now in Prompt Mode, press Ctrl-c to exit");
     let stdin = std::io::stdin();
     let mut buf = String::new();
+
+    let mut ast_arena = AstArena::new();
+    let env = Rc::new(RefCell::new(Environment::new(None)));
+
     loop {
         print!(">>> ");
         std::io::stdout().flush().unwrap();
@@ -189,23 +179,29 @@ fn run_prompt() {
 
         // let val = buf.replace("\r", "").replace("\n", "");
         if !buf.is_empty() {
-            let _result = Xodyr::new().run(&buf);
+            if let Err(err) = Xodyr::new().run(&buf, &mut ast_arena, env.clone()) {
+                err.report();
+            }
         }
     }
 }
 
 fn run_file(path: &str) {
     match File::open(path) {
-        Err(err) => die(&err.to_string()),
+        Err(err) => GenericError::new(&err.to_string()).throw(),
         Ok(mut file) => {
             let mut buf = String::new();
             if let Err(err) = file.read_to_string(&mut buf) {
-                die(&err.to_string());
+                GenericError::new(&err.to_string()).throw();
             }
 
             // let val = buf.replace("\r", "").replace("\n", "");
             if !buf.is_empty() {
-                Xodyr::new().run(&buf);
+                let mut ast_arena = AstArena::new();
+                let env = Rc::new(RefCell::new(Environment::new(None)));
+                if let Err(err) = Xodyr::new().run(&buf, &mut ast_arena, env) {
+                    err.throw();
+                }
             }
         }
     };
