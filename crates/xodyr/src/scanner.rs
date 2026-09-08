@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    RuntimeType, Token,
+    RuntimeValue, Token,
     TokenType::{
         self, And, Bang, BangEqual, Class, Comma, Dot, Else, Equal, EqualEqual, False, For, Fun,
         Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
@@ -16,7 +16,7 @@ use crate::{
 /// `Scanner` manages the Lexical Analysis of our input file or input commands
 pub struct Scanner {
     source: Vec<char>,
-    tokens: Vec<Token>,
+    tokens: Vec<Rc<Token>>,
     start: usize,
     current: usize,
     line: usize,
@@ -61,15 +61,18 @@ impl Scanner {
     }
 
     /// Scan all tokens in the file, saving them in the "tokens" array
-    pub fn scan_tokens(&mut self) -> &Vec<Token> {
+    pub fn scan_tokens(&mut self) -> &Vec<Rc<Token>> {
         while !self.is_at_end() {
             self.start = self.current;
             if let Err(err) = self.scan_token() {
                 err.throw();
             }
         }
-        self.tokens
-            .push(Token::new(TokenType::EOF, String::new(), self.line));
+        self.tokens.push(Rc::new(Token::new(
+            TokenType::EOF,
+            String::new(),
+            self.line,
+        )));
 
         &self.tokens
     }
@@ -168,13 +171,15 @@ impl Scanner {
     /// corresponding text representation
     fn add_token(&mut self, toktype: TokenType) {
         let text: String = self.source[self.start..self.current].iter().collect();
-        self.tokens.push(Token::new(toktype, text, self.line));
+        self.tokens
+            .push(Rc::new(Token::new(toktype, text, self.line)));
     }
 
-    fn add_token_literal(&mut self, toktype: TokenType, literal: RuntimeType) {
+    fn add_token_literal(&mut self, toktype: TokenType, literal: RuntimeValue) {
         let text: String = self.source[self.start..self.current].iter().collect();
-        self.tokens
-            .push(Token::new_literal(toktype, text, self.line, literal));
+        self.tokens.push(Rc::new(Token::new_literal(
+            toktype, text, self.line, literal,
+        )));
     }
 
     /// Consumes a char and returns it
@@ -232,7 +237,7 @@ impl Scanner {
         self.advance();
 
         let text = self.substring(self.start + 1, self.current - 1);
-        self.add_token_literal(TokenType::String, RuntimeType::String(text));
+        self.add_token_literal(TokenType::String, RuntimeValue::String(text));
         Result::Ok(())
     }
 
@@ -260,7 +265,7 @@ impl Scanner {
 
         self.add_token_literal(
             TokenType::Number,
-            RuntimeType::Number(numstr.parse::<f64>().unwrap()),
+            RuntimeValue::Number(numstr.parse::<f64>().unwrap()),
         );
     }
 

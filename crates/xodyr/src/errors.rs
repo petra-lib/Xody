@@ -1,4 +1,4 @@
-use std::process::exit;
+use std::{process::exit, rc::Rc};
 
 use crate::{Token, TokenType};
 
@@ -61,12 +61,12 @@ impl XodyError for LexingError {
 }
 
 pub struct ParseError {
-    token: Token,
+    token: Rc<Token>,
     message: String,
 }
 
 impl ParseError {
-    pub fn new(token: Token, message: &str) -> Self {
+    pub fn new(token: Rc<Token>, message: &str) -> Self {
         Self {
             token,
             message: message.to_string(),

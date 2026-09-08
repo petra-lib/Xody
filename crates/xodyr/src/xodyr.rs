@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     process::exit,
+    rc::Rc,
 };
 
 use crate::{
@@ -20,7 +21,7 @@ mod parser;
 mod scanner;
 mod stmt;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -78,30 +79,48 @@ impl Display for TokenType {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-enum RuntimeType {
+enum RuntimeValue {
     Number(f64),
     String(String),
     Bool(bool),
     Nil,
 }
 
-impl ToString for RuntimeType {
+impl RuntimeValue {
+    pub fn new_number(val: f64) -> Rc<RuntimeValue> {
+        Rc::new(RuntimeValue::Number(val))
+    }
+
+    pub fn new_string(val: String) -> Rc<RuntimeValue> {
+        Rc::new(RuntimeValue::String(val))
+    }
+
+    pub fn new_bool(val: bool) -> Rc<RuntimeValue> {
+        Rc::new(RuntimeValue::Bool(val))
+    }
+
+    pub fn new_nil() -> Rc<RuntimeValue> {
+        Rc::new(RuntimeValue::Nil)
+    }
+}
+
+impl ToString for RuntimeValue {
     fn to_string(&self) -> String {
         match self {
-            RuntimeType::Number(val) => val.to_string(),
-            RuntimeType::String(val) => val.clone(),
-            RuntimeType::Bool(val) => val.to_string(),
-            RuntimeType::Nil => "nil".to_string(),
+            RuntimeValue::Number(val) => val.to_string(),
+            RuntimeValue::String(val) => val.clone(),
+            RuntimeValue::Bool(val) => val.to_string(),
+            RuntimeValue::Nil => "nil".to_string(),
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Token {
     toktype: TokenType,
     lexeme: String,
     line: usize,
-    literal: Option<RuntimeType>,
+    literal: Option<RuntimeValue>,
 }
 
 impl Token {
@@ -114,7 +133,12 @@ impl Token {
         };
     }
 
-    fn new_literal(toktype: TokenType, lexeme: String, line: usize, literal: RuntimeType) -> Token {
+    fn new_literal(
+        toktype: TokenType,
+        lexeme: String,
+        line: usize,
+        literal: RuntimeValue,
+    ) -> Token {
         return Self {
             toktype,
             lexeme,
