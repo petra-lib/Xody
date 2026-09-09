@@ -1,6 +1,8 @@
-# Xodyr 🤓
+# Xodyr (xody rust) 🤓
 
-**Xody** is an interpreted programming language written in Rust, built as a learning project by following the [*Crafting Interpreters*](https://craftinginterpreters.com) book by Robert Nystrom.
+**Xodyr** is an interpreter written in rust for the Xody programming language, built as a learning project by following the [*Crafting Interpreters*](https://craftinginterpreters.com) book by Robert Nystrom.
+
+**Xody** is the name of my Lox-style programming language.
 
 ## Project structure
 
